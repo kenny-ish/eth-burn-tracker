@@ -38,6 +38,16 @@ def blob_fees(url, head, n):
     return out
 
 
+def burn_rate(blocks, burns):
+    # The timestamps of n blocks span only n-1 block intervals, so the first block's burn,
+    # which happened before the first timestamp, is left out to keep burns and intervals matched.
+    # Returns wei per second, or None when there is only one block.
+    seconds = h(blocks[-1]["timestamp"]) - h(blocks[0]["timestamp"])
+    if len(blocks) < 2 or seconds <= 0:
+        return None
+    return sum(burns[1:]) / seconds
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--blocks", type=int, default=300)
@@ -57,14 +67,18 @@ def main():
         exec_total += e
         blob_total += bl
         per_block.append((e + bl, h(b["number"]), h(b.get("baseFeePerGas"))))
-    seconds = h(blocks[-1]["timestamp"]) - h(blocks[0]["timestamp"]) or 1
+    seconds = h(blocks[-1]["timestamp"]) - h(blocks[0]["timestamp"])
     total = exec_total + blob_total
+    rate = burn_rate(blocks, [burn for burn, _, _ in per_block])
 
     print(f"blocks {numbers[0]}-{numbers[-1]} ({len(blocks)} blocks, {seconds / 3600:.2f} h)")
     print(f"burned     {total / 1e18:,.4f} ETH")
     print(f"  base fee {exec_total / 1e18:,.4f} ETH")
     print(f"  blobs    {blob_total / 1e18:,.6f} ETH ({blob_total / total:.2%} of burn)" if total else "  blobs    0")
-    print(f"rate       {total / 1e18 / seconds * 3600:,.4f} ETH/hour, {total / 1e18 / seconds * 86400:,.2f} ETH/day at this pace")
+    if rate is None:
+        print("rate       n/a (need at least two blocks)")
+    else:
+        print(f"rate       {rate / 1e18 * 3600:,.4f} ETH/hour, {rate / 1e18 * 86400:,.2f} ETH/day at this pace")
     print("\nbiggest burners")
     for burn, n, base in sorted(per_block, reverse=True)[:5]:
         print(f"  block {n}  {burn / 1e18:.5f} ETH  (base fee {base / 1e9:.2f} gwei)")
